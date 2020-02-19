@@ -9,3 +9,7 @@ from .l2_distance_hash import (
 from .mips_hash import (
     MipsHash,
 )
+
+from .meta_hash import (
+    MetaHash,
+)
