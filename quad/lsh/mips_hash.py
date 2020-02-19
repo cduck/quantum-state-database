@@ -67,7 +67,7 @@ class MipsHash(LocalitySensitiveHash):
 
     @property
     def d(self):
-        return len(rand_vector) - self.m
+        return len(self.rand_vector) - self.m
 
     def hash_function(self, x: np.ndarray) -> int:
         dot = np.vdot(self.rand_vector, x)
@@ -116,7 +116,6 @@ class MipsHash(LocalitySensitiveHash):
         This method avoids the extra copy of the vector created by
         `query_transform`.
         '''
-        extra = norm ** (2 ** np.arange(1, self.m+1))
         dot = np.vdot(self.rand_vector[:len(q)], q) * self.preproc_scale
         dot += np.sum(self.rand_vector[len(q):]) / 2
         return int(np.floor((dot + self.rand_scalar) / self.r))
