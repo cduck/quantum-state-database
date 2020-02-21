@@ -36,7 +36,8 @@ def test_locality():
                        reverse=True)
 
         # Fast approximate search
-        local = set(local_collection.iter_local_buckets(vid, scale=1/np.linalg.norm(store[vid])))
+        local = set(local_collection.iter_local_buckets(
+            vid, scale=1/np.linalg.norm(store[vid])))
 
         found = order[0] in local
         found_list.append(found)
