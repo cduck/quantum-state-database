@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Hashable
+
 import dataclasses
 
 import numpy as np
@@ -34,6 +36,7 @@ class MipsHash(LocalitySensitiveHash):
     rand_vector: np.ndarray
     rand_scalar: float
     preproc_scale: float = 1.0
+    is_complex: bool = False
 
     def __post_init__(self):
         if self.r <= 0:
@@ -43,6 +46,7 @@ class MipsHash(LocalitySensitiveHash):
 
     @staticmethod
     def from_random(d: int, r: float=2.5, m: int=3, preproc_scale: float=1.0,
+                    is_complex: bool=False,
                     prng: np.random.RandomState=np.random):
         '''Returns a random L2 distance hash with the given configuration.
 
@@ -55,25 +59,40 @@ class MipsHash(LocalitySensitiveHash):
                 Defaults to 1.
             prng: The random number generator to use.
         '''
-        a = prng.normal(0, 1, size=d+m)
-        b = -prng.uniform(-r, 0)  # Excludes 0
+        if is_complex:
+            a = np.empty(d+m, dtype=np.complex128)
+            a.real = prng.normal(0, 1, size=d+m)
+            a.imag = prng.normal(0, 1, size=d+m)
+            b = -prng.uniform(-r, 0) - prng.uniform(-r, 0) * 1j # Excludes 0
+        else:
+            a = prng.normal(0, 1, size=d+m)
+            b = -prng.uniform(-r, 0)  # Excludes 0
         return MipsHash(r=r, rand_vector=a, rand_scalar=b, m=m,
-                        preproc_scale=preproc_scale)
+                        preproc_scale=preproc_scale, is_complex=is_complex)
 
     def random_copy(self, prng: np.random.RandomState=np.random
                    ) -> MipsHash:
         return self.from_random(d=self.d, r=self.r, m=self.m,
-                                preproc_scale=self.preproc_scale, prng=prng)
+                                preproc_scale=self.preproc_scale,
+                                is_complex=self.is_complex,
+                                prng=prng)
 
     @property
     def d(self):
         return len(self.rand_vector) - self.m
 
-    def hash_function(self, x: np.ndarray) -> int:
-        dot = np.vdot(self.rand_vector, x)
-        return int(np.floor((dot + self.rand_scalar) / self.r))
+    def _complex_floor(self, val) -> Hashable:
+        #return int(np.floor(val.real)), int(np.floor(val.imag))
+        return int(np.floor(np.abs(val)))  # Ignore complex phase
 
-    def preproc_transform(self, q: np.ndarray):
+    def hash_function(self, x: np.ndarray) -> Hashable:
+        dot = np.vdot(self.rand_vector, x)
+        val = (dot + self.rand_scalar) / self.r
+        if self.is_complex:
+            return self._complex_floor(val)
+        return int(np.floor(val))
+
+    def preproc_transform(self, q: np.ndarray) -> np.ndarray:
         '''Returns the transformed vector.
 
         For MIPS, returns [q; ||q||_2^2; ||q||_2^4; ...; ||x||_2^{2^m}]
@@ -85,7 +104,7 @@ class MipsHash(LocalitySensitiveHash):
                 'Preprocess vectors must already be scaled to norm <= U < 1.')
         return np.concatenate([q, extra])
 
-    def query_transform(self, q: np.ndarray, scale: float=1):
+    def query_transform(self, q: np.ndarray, scale: float=1) -> np.ndarray:
         '''Returns the transformed query vector.
 
         For MIPS, returns [q; 0.5; 0.5; ...; 0.5]
@@ -108,7 +127,10 @@ class MipsHash(LocalitySensitiveHash):
         extra = norm ** (2 ** np.arange(1, self.m+1))
         dot = np.vdot(self.rand_vector[:len(q)], q) * self.preproc_scale
         dot += np.vdot(self.rand_vector[len(q):], extra)
-        return int(np.floor((dot + self.rand_scalar) / self.r))
+        val = (dot + self.rand_scalar) / self.r
+        if self.is_complex:
+            return self._complex_floor(val)
+        return int(np.floor(val))
 
     def query_hash_raw(self, q: np.ndarray, scale: float=1) -> Hashable:
         '''Returns the raw hash object of the vector used at query time.
@@ -118,7 +140,10 @@ class MipsHash(LocalitySensitiveHash):
         '''
         dot = np.vdot(self.rand_vector[:len(q)], q) * self.preproc_scale
         dot += np.sum(self.rand_vector[len(q):]) / 2
-        return int(np.floor((dot + self.rand_scalar) / self.r))
+        val = (dot + self.rand_scalar) / self.r
+        if self.is_complex:
+            return self._complex_floor(val)
+        return int(np.floor(val))
 
     def query_hash(self, q: np.ndarray, scale: float=1) -> int:
         '''Returns the hash of the vector used at query time.'''
