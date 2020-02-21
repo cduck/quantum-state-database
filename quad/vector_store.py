@@ -12,6 +12,7 @@ class VectorStore(collections.abc.MutableMapping):
     '''
     def __init__(self):
         self._map = {}
+        self.info = collections.defaultdict(dict)
 
     @staticmethod
     def from_list(vectors: Sequence[np.ndarray]) -> VectorStore:
@@ -34,7 +35,7 @@ class VectorStore(collections.abc.MutableMapping):
 
     def add(self, vector: np.ndarray) -> int:
         '''Stores the given vector under a unique vid and returns that vid.'''
-        vid = -len(self._map)
+        vid = len(self._map)
         while vid in self._map:
             vid *= 2
         self[vid] = vector
@@ -54,4 +55,4 @@ class VectorStore(collections.abc.MutableMapping):
         return self._map.keys()
 
     def __repr__(self) -> str:
-        return f'VectorStore({self._map!r})'
+        return f'VectorStore({self._map!r}, {self.info!r})'
