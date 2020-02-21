@@ -7,3 +7,5 @@ from .vector_store import (
 from .asymmetric_local_collection import (
     AsymmetricLocalCollection,
 )
+
+from . import benchmark
