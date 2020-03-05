@@ -33,7 +33,9 @@ setup(
     ],
     install_requires = [
         'numpy',
-        'cirq==0.7',
+        'cirq~=0.7.0',
+        'zarr~=2.4',
+        'numcodecs~=0.6.4',
     ],
     extras_require = {
         'dev': [
