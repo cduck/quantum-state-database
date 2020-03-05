@@ -8,8 +8,11 @@ import cirq
 import quad.lsh, quad.benchmark
 
 
-def default_circuit_factory(num_qubits=9, depth=3, noise_p1=0.05, noise_p2=0.05
-                   ) -> quad.benchmark.RandomCircuitFactory:
+BENCHMARK_STORE_PATH = 'benchmark-store'
+
+
+def default_circuit_factory(*, num_qubits, depth, noise_p1, noise_p2
+                           ) -> quad.benchmark.RandomCircuitFactory:
     qubits = cirq.GridQubit.rect(*(int(np.ceil(num_qubits**0.5)),)*2
                                 )[:num_qubits]
     return quad.benchmark.RandomCircuitFactory(
@@ -20,12 +23,12 @@ def default_circuit_factory(num_qubits=9, depth=3, noise_p1=0.05, noise_p2=0.05
 def generate_vectors(seed, factory, num_base, num_noise_per
                     ) -> quad.VectorStore:
     prng = np.random.RandomState(seed)
-    store = quad.VectorStore()
+    store = quad.VectorStore(BENCHMARK_STORE_PATH)
     circuit_seeds = []
 
     def add_circuit(circuit_seed, noise_seed):
-        circuit = factory.make(circuit_seed, noise_seed)
-        state_vector = cirq.final_wavefunction(circuit)
+        store._load(only_new=False)
+
         info = dict(
             type='random-layered',
             circuit_seed=circuit_seed,
@@ -35,11 +38,28 @@ def generate_vectors(seed, factory, num_base, num_noise_per
         )
         if noise_seed is not None:
             info.update(dict(
-                noise_p1=factory.noise_p1,
-                noise_p2=factory.noise_p2,
+                noise_type=type(factory.noise_model).__name__,
+                noise_p1=factory.noise_model.p1,
+                noise_p2=factory.noise_model.p2,
             ))
-        vid = store.add(state_vector)
-        store.info[vid] = info
+        # Check that not already calculated
+        for vid in store:
+            other_info = dict(store.get_info(vid, {}))
+            other_info.pop('status', None)
+            if info == other_info:
+                print(f'Already calculated\n    {info}\n    {other_info}')
+                return
+
+        # Add placeholder
+        info['status'] = 'placeholder'
+        vid = store.add(np.array(0), info=info)
+
+        print(f'Calculating\n{info}')
+        circuit = factory.make(circuit_seed, noise_seed)
+        state_vector = cirq.final_wavefunction(circuit)
+        store[vid] = state_vector
+        store.update_info(vid, status='done')
+        return
 
     for base_i in range(num_base):
         sub_prng = np.random.RandomState(prng.randint(2**32))
@@ -50,12 +70,12 @@ def generate_vectors(seed, factory, num_base, num_noise_per
             noise_seed = sub_prng.randint(2**32)
             add_circuit(circuit_seed, noise_seed)
 
-    shuffled_store = quad.VectorStore()
-    for i_new, i in enumerate(prng.permutation(np.arange(len(store)))):
-        shuffled_store[i_new] = store[i]
-        shuffled_store.info[i_new] = store.info[i]
+    #shuffled_store = quad.VectorStore()
+    #for i_new, i in enumerate(prng.permutation(np.arange(len(store)))):
+    #    shuffled_store[i_new] = store[i]
+    #    shuffled_store.set_info(i_new, store.get_info(i))
 
-    return shuffled_store, circuit_seeds
+    return store, circuit_seeds
 
 
 def distance_metric(v1, v2):
@@ -124,8 +144,15 @@ class TestBenchmark:
     num_noise_per = 10
     limit_top = 10
 
+    num_qubits = 20
+    depth = 20
+    noise_p1 = 0.005
+    noise_p2 = 0.005
+
     def setup_class(cls):
-        factory = default_circuit_factory()
+        factory = default_circuit_factory(
+            num_qubits=cls.num_qubits, depth=cls.depth,
+            noise_p1=cls.noise_p2, noise_p2=cls.noise_p2)
         cls.store, _ = generate_vectors(
             seed=cls.vectors_seed,
             factory=factory,
@@ -139,7 +166,7 @@ class TestBenchmark:
     def test_naive_performance(self, benchmark):
         '''Benchmark performance without using an index.'''
         closest_exhaustive = benchmark(find_closest_pairs_exhaustive,
-                                      self.store, self.limit_top)
+                                       self.store, self.limit_top)
         print('Naive:', closest_exhaustive)
 
     @pytest.mark.benchmark(
