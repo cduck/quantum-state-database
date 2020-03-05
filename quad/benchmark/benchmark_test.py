@@ -13,7 +13,8 @@ def default_circuit_factory(num_qubits=9, depth=3, noise_p1=0.05, noise_p2=0.05
     qubits = cirq.GridQubit.rect(*(int(np.ceil(num_qubits**0.5)),)*2
                                 )[:num_qubits]
     return quad.benchmark.RandomCircuitFactory(
-        qubits=qubits, depth=depth, noise_p1=noise_p1, noise_p2=noise_p2)
+        qubits=qubits, depth=depth,
+        noise_model=quad.benchmark.RotationNoise(noise_p1, noise_p2, None))
 
 
 def generate_vectors(seed, factory, num_base, num_noise_per

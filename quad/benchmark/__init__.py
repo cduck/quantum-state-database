@@ -1,4 +1,5 @@
 from .circuits import (
-    DepolarizingNoise,
+    RotationNoise,
+    DepolarizingChannelNoise,
     RandomCircuitFactory,
 )

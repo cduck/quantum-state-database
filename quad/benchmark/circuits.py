@@ -4,10 +4,14 @@ import dataclasses
 
 import numpy as np
 import cirq
+from cirqtools import qutrit
 
 
-@dataclasses.dataclass(frozen=True)
-class DepolarizingNoise(cirq.NoiseModel):
+
+
+
+@dataclasses.dataclass
+class RotationNoise(cirq.NoiseModel):
     '''A symmetric depolarizing noise model.
 
     Randomly adds error after each single-qubit (two-qubit) gate with
@@ -22,6 +26,8 @@ class DepolarizingNoise(cirq.NoiseModel):
         yield op
         if not isinstance(op.gate, cirq.MeasurementGate):
             p = (self.p1, self.p2)[len(op.qubits) > 1]
+            if p == 0:
+                return
             for q in op.qubits:
                 sx, sy, sz = self.prng.normal(0, p/3, 3)
                 yield cirq.X(q) ** sx
@@ -29,7 +35,31 @@ class DepolarizingNoise(cirq.NoiseModel):
                 yield cirq.Z(q) ** sz
 
 
-@dataclasses.dataclass(frozen=True)
+@dataclasses.dataclass
+class DepolarizingChannelNoise(cirq.NoiseModel):
+    '''A symmetric depolarizing noise model.
+
+    Adds a depolarizing error channel after each single-qubit (two-qubit) gate
+    with probability `p1` (`p2`).  The errors have equal chance of being X, Y,
+    or Z.
+    '''
+    p1: float
+    p2: float
+    prng: np.random.RandomState = dataclasses.field(
+        default_factory=np.random.RandomState)
+
+    def noisy_operation(self, op: cirq.Operation) -> cirq.OP_TREE:
+        yield op
+        if not isinstance(op.gate, cirq.MeasurementGate):
+            p = (self.p1, self.p2)[len(op.qubits) > 1]
+            if p == 0:
+                return
+            g = cirq.depolarize(p)
+            for q in op.qubits:
+                yield g.on(q)
+
+
+@dataclasses.dataclass
 class RandomCircuitFactory:
     '''A factory for random quantum circuits with a layered structure of
     two-qubit gates.
@@ -42,10 +72,10 @@ class RandomCircuitFactory:
     pattern: Sequence[cirq.experiments.GridInteractionLayer
                      ] = cirq.experiments.GRID_ALIGNED_PATTERN
     single_qubit_gates: Sequence[cirq.Gate
-                                ] = (cirq.X**0.5, cirq.Y**0.5, cirq.Z**0.5)
+        ] = (cirq.X**0.5, cirq.Y**0.5,
+             cirq.PhasedXPowGate(phase_exponent=0.25, exponent=0.5))
     add_final_single_qubit_layer: bool = True
-    noise_p1: float = 0.1
-    noise_p2: float = 0.1
+    noise_model: cirq.NoiseModel = RotationNoise(0.1, 0.1, None)
 
     def make(self, circuit_seed: Any, noise_seed: Any=None) -> cirq.Circuit:
         c = (cirq.experiments
@@ -59,5 +89,10 @@ class RandomCircuitFactory:
             seed=circuit_seed,
         ))
         if noise_seed is not None:
-            return c.with_noise(DepolarizingNoise(self.noise_p1, self.noise_p2))
+            prng = np.random.RandomState(noise_seed)
+            try:
+                self.noise_model.prng = prng
+                return c.with_noise(self.noise_model)
+            finally:
+                self.noise_model.prng = None
         return c
