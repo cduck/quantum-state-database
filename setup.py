@@ -27,6 +27,7 @@ setup(
     download_url = f'https://github.com/cduck/{name}/archive/{version}.tar.gz',
     keywords = ['quantum computing', 'databases', 'locality sensitive hashing'],
     classifiers = [
+        'License :: OSI Approved :: MIT License',
         'Development Status :: 3 - Alpha',
         'Programming Language :: Python :: 3',
         'Programming Language :: Python :: 3.7',
