@@ -46,7 +46,7 @@ class AsymmetricLocalCollection:
         return self._len
 
     def add(self, vid: int, **preproc_args: Any) -> None:
-        vector = self.vector_store[vid]  # Load vector
+        vector = np.array(self.vector_store[vid])  # Load vector
         num_added = 0
         for lsh, m in self._lsh_map_list:
             raw_hash = lsh.preproc_hash_raw(vector, **preproc_args)  # Hash
@@ -114,7 +114,7 @@ class AsymmetricLocalCollection:
         The closeness metric used is determined by the LSH attribute of the
         collection.
         '''
-        vector = self.vector_store[vid]  # Load vector
+        vector = np.array(self.vector_store[vid])  # Load vector
         vid_set = set()
         for lsh, m in self._lsh_map_list:
             raw_hash = lsh.query_hash_raw(vector, **query_args)  # Hash

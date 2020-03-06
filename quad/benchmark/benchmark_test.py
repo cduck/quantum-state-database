@@ -6,76 +6,7 @@ import numpy as np
 import cirq
 
 import quad.lsh, quad.benchmark
-
-
-BENCHMARK_STORE_PATH = 'benchmark-store'
-
-
-def default_circuit_factory(*, num_qubits, depth, noise_p1, noise_p2
-                           ) -> quad.benchmark.RandomCircuitFactory:
-    qubits = cirq.GridQubit.rect(*(int(np.ceil(num_qubits**0.5)),)*2
-                                )[:num_qubits]
-    return quad.benchmark.RandomCircuitFactory(
-        qubits=qubits, depth=depth,
-        noise_model=quad.benchmark.RotationNoise(noise_p1, noise_p2, None))
-
-
-def generate_vectors(seed, factory, num_base, num_noise_per
-                    ) -> quad.VectorStore:
-    prng = np.random.RandomState(seed)
-    store = quad.VectorStore(BENCHMARK_STORE_PATH)
-    circuit_seeds = []
-
-    def add_circuit(circuit_seed, noise_seed):
-        store._load(only_new=False)
-
-        info = dict(
-            type='random-layered',
-            circuit_seed=circuit_seed,
-            noise_seed=noise_seed,
-            num_qubits=len(factory.qubits),
-            depth=factory.depth,
-        )
-        if noise_seed is not None:
-            info.update(dict(
-                noise_type=type(factory.noise_model).__name__,
-                noise_p1=factory.noise_model.p1,
-                noise_p2=factory.noise_model.p2,
-            ))
-        # Check that not already calculated
-        for vid in store:
-            other_info = dict(store.get_info(vid, {}))
-            other_info.pop('status', None)
-            if info == other_info:
-                print(f'Already calculated\n    {info}\n    {other_info}')
-                return
-
-        # Add placeholder
-        info['status'] = 'placeholder'
-        vid = store.add(np.array(0), info=info)
-
-        print(f'Calculating\n{info}')
-        circuit = factory.make(circuit_seed, noise_seed)
-        state_vector = cirq.final_wavefunction(circuit)
-        store[vid] = state_vector
-        store.update_info(vid, status='done')
-        return
-
-    for base_i in range(num_base):
-        sub_prng = np.random.RandomState(prng.randint(2**32))
-        circuit_seed = sub_prng.randint(2**32)
-        circuit_seeds.append(circuit_seed)
-        add_circuit(circuit_seed, None)
-        for noise_i in range(num_noise_per):
-            noise_seed = sub_prng.randint(2**32)
-            add_circuit(circuit_seed, noise_seed)
-
-    #shuffled_store = quad.VectorStore()
-    #for i_new, i in enumerate(prng.permutation(np.arange(len(store)))):
-    #    shuffled_store[i_new] = store[i]
-    #    shuffled_store.set_info(i_new, store.get_info(i))
-
-    return store, circuit_seeds
+from quad.benchmark.benchmark_generate import BenchmarakGenerate
 
 
 def distance_metric(v1, v2):
@@ -85,8 +16,10 @@ def find_closest_pairs_exhaustive(store, limit_top):
     ordered = sorted(
         ((distance_metric(v1, v2), vid1, vid2)
          for vid1, v1 in store.items()
-         for vid2, v2 in store.items()
-         if vid1 < vid2
+         for vid2, v2 in [(9, np.array(store[9]))]################store.items()
+         if (True########vid1 < vid2
+            and store.is_available(vid1) and store.is_available(vid2)
+            and (print(vid1, vid2) or True))
         )
     )
     print('Exhaustive pair count:', len(ordered))
@@ -116,12 +49,14 @@ def find_closest_pairs_approximate_index(store, limit_top):
         prng=np.random.RandomState(hash_seed),
     )
     for vid in store:
+        print(vid)
         collection.add(vid)
 
     # Find closest pairs using the collection
     dist_pairs = {}
     for vid, v in store.items():
         for vid_near in collection.iter_local_buckets(vid):
+            print(vid, vid_near)
             if vid_near == vid:
                 continue  # Skip self-comparison
             vid_pair = tuple(sorted((vid, vid_near)))
@@ -137,43 +72,24 @@ def find_closest_pairs_approximate_index(store, limit_top):
     return ordered[:limit_top]
 
 
-class TestBenchmark:
-    vectors_seed = 0
+LIMIT_TOP = 10
 
-    num_base = 100
-    num_noise_per = 10
-    limit_top = 10
+@pytest.mark.benchmark(
+    group='perf-comparison',
+)
+def test_naive_performance(benchmark):
+    '''Benchmark performance without using an index.'''
+    store = BenchmarakGenerate.get_store()
+    closest_exhaustive = benchmark(find_closest_pairs_exhaustive,
+                                   store, LIMIT_TOP)
+    print('Naive:', closest_exhaustive)
 
-    num_qubits = 20
-    depth = 20
-    noise_p1 = 0.005
-    noise_p2 = 0.005
-
-    def setup_class(cls):
-        factory = default_circuit_factory(
-            num_qubits=cls.num_qubits, depth=cls.depth,
-            noise_p1=cls.noise_p2, noise_p2=cls.noise_p2)
-        cls.store, _ = generate_vectors(
-            seed=cls.vectors_seed,
-            factory=factory,
-            num_base=cls.num_base,
-            num_noise_per=cls.num_noise_per,
-        )
-
-    @pytest.mark.benchmark(
-        group='perf-comparison',
-    )
-    def test_naive_performance(self, benchmark):
-        '''Benchmark performance without using an index.'''
-        closest_exhaustive = benchmark(find_closest_pairs_exhaustive,
-                                       self.store, self.limit_top)
-        print('Naive:', closest_exhaustive)
-
-    @pytest.mark.benchmark(
-        group='perf-comparison',
-    )
-    def test_index_performance(self, benchmark):
-        '''Benchmark performance when using an approximate index.'''
-        closest_approx = benchmark(find_closest_pairs_approximate_index,
-                                   self.store, self.limit_top)
-        print('Approx index:', closest_approx)
+@pytest.mark.benchmark(
+    group='perf-comparison',
+)
+def test_index_performance(benchmark):
+    '''Benchmark performance when using an approximate index.'''
+    store = BenchmarakGenerate.get_store()
+    closest_approx = benchmark(find_closest_pairs_approximate_index,
+                               store, LIMIT_TOP)
+    print('Approx index:', closest_approx)

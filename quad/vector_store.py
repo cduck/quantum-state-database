@@ -19,8 +19,9 @@ class VectorStore(collections.abc.MutableMapping):
     compressor = numcodecs.Blosc(cname='lz4', clevel=3,
                                  shuffle=numcodecs.Blosc.BITSHUFFLE)
 
-    def __init__(self, path: pathlib.Path):
+    def __init__(self, path: pathlib.Path, load_filter=None):
         self._path = pathlib.Path(path)
+        self.load_filter = load_filter
         self._map = {}
         self._info = {}
         self._load(only_new=False, log=True)
@@ -41,6 +42,24 @@ class VectorStore(collections.abc.MutableMapping):
                 if only_new and vid in self:
                     continue
                 if path.suffix == '.zarr':
+                    # Load info
+                    info = {}
+                    try:
+                        with open(path.parent / (prefix+'.info'), 'rb') as f:
+                            info = pickle.load(f, fix_imports=False)
+                    except Exception as e:
+                        print(f'Invalid vector info: {path.parent / prefix}'
+                              f'.info\n'
+                              f'    Exception: {e}')
+                    else:
+                        self._info[vid] = info
+                        if log:
+                            print(path.name, end=', ')
+                        if self.load_filter is not None:
+                            if not self.load_filter(info):
+                                self._map[vid] = False
+                                continue  # Don't load if filter returns False
+                    # Load array
                     try:
                         self._map[vid] = zarr.open(str(path), mode='r+')
                     except Exception as e:
@@ -49,17 +68,17 @@ class VectorStore(collections.abc.MutableMapping):
                     else:
                         if log:
                             print(path.name, end=', ')
-                elif path.suffix == '.info':
-                    with open(path, 'rb') as f:
-                        try:
-                            info = pickle.load(f, fix_imports=False)
-                        except Exception as e:
-                            print(f'Invalid vector info: {path}\n'
-                                  f'    Exception: {e}')
-                        else:
-                            self._info[vid] = info
-                            if log:
-                                print(path.name, end=', ')
+                #elif path.suffix == '.info':
+                #    with open(path, 'rb') as f:
+                #        try:
+                #            info = pickle.load(f, fix_imports=False)
+                #        except Exception as e:
+                #            print(f'Invalid vector info: {path}\n'
+                #                  f'    Exception: {e}')
+                #        else:
+                #            self._info[vid] = info
+                #            if log:
+                #                print(path.name, end=', ')
             if log:
                 print()
                 print(f'    All vids: {sorted(self.keys())}')
@@ -109,7 +128,8 @@ class VectorStore(collections.abc.MutableMapping):
                     raise
             else:
                 with open(path_tmp, 'wb') as f_tmp:
-                    pickle.dump(self._info[vid], f_tmp, fix_imports=False)
+                    pickle.dump(self._info.get(vid, {}), f_tmp,
+                                fix_imports=False)
                     f_tmp.flush()
                     os.rename(path_tmp, path)
         if log:
@@ -131,10 +151,17 @@ class VectorStore(collections.abc.MutableMapping):
     def __len__(self) -> int:
         return len(self._map)
 
+    def is_available(self, vid: int) -> bool:
+        return self._map.get(vid, False) is not False
+
     def __getitem__(self, vid: int) -> np.ndarray:
+        if self._map.get(vid, None) is False:
+            raise RuntimeError(f'Vector with vid {vid} not loaded.')
         return self._map[vid]
 
     def __setitem__(self, vid: int, vector: np.ndarray) -> None:
+        if self._map.get(vid, None) is False:
+            raise RuntimeError(f'Vector with vid {vid} not loaded.')
         self._info.setdefault(vid, {})
         self._save(vid, log=False)
         backed = zarr.open(str(self._path / f'{int(vid)}.zarr'),
@@ -148,17 +175,23 @@ class VectorStore(collections.abc.MutableMapping):
     def get_info(self, vid: int, default: Any=None) -> Any:
         if vid not in self._map:
             raise KeyError(f'Vector with vid {vid} not found.')
+        if self._map[vid] is False:
+            raise RuntimeError(f'Vector with vid {vid} not loaded.')
         return self._info.get(vid, default)
 
     def set_info(self, vid: int, info: Any) -> None:
         if vid not in self._map:
             raise KeyError(f'Vector with vid {vid} not found.')
+        if self._map[vid] is False:
+            raise RuntimeError(f'Vector with vid {vid} not loaded.')
         self._info[vid] = info
         self._save(vid, log=True)
 
     def update_info(self, vid: int, *args, **kwargs) -> None:
         if vid not in self._map:
             raise KeyError(f'Vector with vid {vid} not found.')
+        if self._map[vid] is False:
+            raise RuntimeError(f'Vector with vid {vid} not loaded.')
         self._info[vid].update(*args, **kwargs)
         self._save(vid, log=True)
 
@@ -190,7 +223,8 @@ class VectorStore(collections.abc.MutableMapping):
         return vid
 
     def __delitem__(self, vid: int) -> None:
-        # TODO: Disk backed
+        if self._map.get(vid, None) is False:
+            raise RuntimeError(f'Vector with vid {vid} not loaded.')
         shutil.rmtree(self._path / f'{int(vid)}.zarr', ignore_errors=False)
         del self._map[vid]
         os.remove(self._path / f'{int(vid)}.info')
