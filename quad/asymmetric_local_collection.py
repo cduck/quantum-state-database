@@ -19,12 +19,14 @@ class AsymmetricLocalCollection:
                  base_lsh: LocalitySensitiveHash,
                  meta_hash_size: int=1,
                  number_of_maps: int=1,
+                 vector_slice: slice=slice(None, None),
                  prng: np.random.RandomState=np.random,
                  prng_state: Any=None):
         self.vector_store = vector_store
         self.base_lsh = base_lsh
         self.meta_hash_size = meta_hash_size
         self.number_of_maps = number_of_maps
+        self.vector_slice = vector_slice
         if prng_state is None:
             prng_state = prng.get_state()
         else:
@@ -46,7 +48,8 @@ class AsymmetricLocalCollection:
         return self._len
 
     def add(self, vid: int, **preproc_args: Any) -> None:
-        vector = np.array(self.vector_store[vid])  # Load vector
+        # Load vector
+        vector = np.array(self.vector_store[vid][self.vector_slice])
         num_added = 0
         for lsh, m in self._lsh_map_list:
             raw_hash = lsh.preproc_hash_raw(vector, **preproc_args)  # Hash
@@ -97,6 +100,12 @@ class AsymmetricLocalCollection:
                         f'{i}.')
         self._len -= 1
 
+    def empty(self) -> None:
+        '''Removes all items from the collection.'''
+        for _, m in self._lsh_map_list:
+            m.clear()
+        self._len = 0
+
     def items(self) -> Iterable[Tuple[int, Any]]:
         lsh, m = self._lsh_map_list[0]
         for bucket in m.values():
@@ -114,7 +123,8 @@ class AsymmetricLocalCollection:
         The closeness metric used is determined by the LSH attribute of the
         collection.
         '''
-        vector = np.array(self.vector_store[vid])  # Load vector
+        # Load vector
+        vector = np.array(self.vector_store[vid][self.vector_slice])
         vid_set = set()
         for lsh, m in self._lsh_map_list:
             raw_hash = lsh.query_hash_raw(vector, **query_args)  # Hash

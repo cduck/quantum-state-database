@@ -111,7 +111,7 @@ class MipsHash(LocalitySensitiveHash):
         '''
         raise NotImplementedError
         extra = np.full(self.m, 0.5, dtype=q.dtype)
-        return np.concatenate([q, extra])
+        return np.concatenate([q * scale, extra])
 
     # Override methods of LocalitySensitiveHash with optimized versions
     def preproc_hash_raw(self, q: np.ndarray) -> Hashable:
@@ -138,7 +138,7 @@ class MipsHash(LocalitySensitiveHash):
         This method avoids the extra copy of the vector created by
         `query_transform`.
         '''
-        dot = np.vdot(self.rand_vector[:len(q)], q) * self.preproc_scale
+        dot = np.vdot(self.rand_vector[:len(q)], q) * scale
         dot += np.sum(self.rand_vector[len(q):]) / 2
         val = (dot + self.rand_scalar) / self.r
         if self.is_complex:

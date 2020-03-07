@@ -10,11 +10,11 @@ from .raw_types import LocalitySensitiveHash
 
 
 @dataclasses.dataclass(frozen=True)
-class L2DistanceHash(LocalitySensitiveHash):
-    '''A locality sensitive hash for L2 distance between vectors.
+class StateVectorDistanceHash(LocalitySensitiveHash):
+    '''A locality sensitive hash for distance between quantum state vectors.
 
-    Based on arXiv:1405.5869, "Asymmetric LSH (ALSH) for Sublinear Time Maximum
-    Inner Product Search (MIPS)".
+    Inspired by arXiv:1405.5869, "Asymmetric LSH (ALSH) for Sublinear Time
+    Maximum Inner Product Search (MIPS)".
 
     Attributes:
         r: A positive number affecting the probability of collision.
@@ -28,40 +28,34 @@ class L2DistanceHash(LocalitySensitiveHash):
     rand_vector: np.ndarray
     rand_scalar: float
     preproc_scale: float = 1
-    is_complex: bool = False
 
     def __post_init__(self):
         if self.r <= 0:
             raise ValueError('r must be a positive integer.')
 
     @staticmethod
-    def from_random(d: int, r: float, is_complex: bool=False,
-                    preproc_scale: float=1,
-                    prng: np.random.RandomState=np.random) -> L2DistanceHash:
-        '''Returns a random L2 distance hash with the given configuration.
+    def from_random(d: int, r: float, preproc_scale: float=1,
+                    prng: np.random.RandomState=np.random
+                   ) -> StateVectorDistanceHash:
+        '''Returns a random state vector distance hash with the given
+        configuration.
 
         Arguments:
             d: The expected dimension (length) of the preprocess/query vectors.
             r: A positive number affecting the probability of collision.
             prng: The random number generator to use.
         '''
-        if is_complex:
-            a = np.empty(d, dtype=np.complex128)
-            a.real = prng.normal(0, 1, size=d)
-            a.imag = prng.normal(0, 1, size=d)
-            b = -prng.uniform(-r, 0) - prng.uniform(-r, 0) * 1j # Excludes 0
-        else:
-            a = prng.normal(0, 1, size=d)
-            b = -prng.uniform(-r, 0)  # Excludes 0
-        return L2DistanceHash(r=r, rand_vector=a, rand_scalar=b,
-                              preproc_scale=preproc_scale,
-                              is_complex=is_complex)
+        a = np.empty(d, dtype=np.complex128)
+        a.real = prng.normal(0, 1, size=d)
+        a.imag = prng.normal(0, 1, size=d)
+        b = -prng.uniform(-r, 0)  # Excludes 0
+        return StateVectorDistanceHash(r=r, rand_vector=a, rand_scalar=b,
+                                       preproc_scale=preproc_scale)
 
     def random_copy(self, prng: np.random.RandomState=np.random
-                   ) -> L2DistanceHash:
+                   ) -> StateVectorDistanceHash:
         return self.from_random(
-            d=self.d, r=self.r, is_complex=self.is_complex,
-            preproc_scale=self.preproc_scale, prng=prng)
+            d=self.d, r=self.r, preproc_scale=self.preproc_scale, prng=prng)
 
     @property
     def d(self) -> int:
@@ -69,11 +63,8 @@ class L2DistanceHash(LocalitySensitiveHash):
 
     def hash_function(self, x: np.ndarray, scale: float=1) -> Hashable:
         dot = np.vdot(self.rand_vector, x) * scale
-        val = (dot + self.rand_scalar) / self.r
-        if self.is_complex:
-            #return int(np.floor(val.real)), int(np.floor(val.imag))
-            return int(np.floor(np.abs(val)))  # Ignore complex phase
-        return int(np.floor(val))
+        val = (np.abs(dot) + self.rand_scalar) / self.r  # Ignore global phase
+        return int(np.floor(np.abs(val)))
 
     def preproc_hash_raw(self, q: np.ndarray) -> Hashable:
         '''Returns the raw hash object of the vector used during preprocessing.

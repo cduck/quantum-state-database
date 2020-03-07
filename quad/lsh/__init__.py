@@ -10,6 +10,10 @@ from .mips_hash import (
     MipsHash,
 )
 
+from .state_vector_distance_hash import (
+    StateVectorDistanceHash,
+)
+
 from .meta_hash import (
     MetaHash,
 )
