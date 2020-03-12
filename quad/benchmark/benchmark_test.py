@@ -27,19 +27,16 @@ def find_closest_pairs_exhaustive(store, limit_top):
 
 def find_closest_pairs_approximate_index(store, limit_top):
     d = store[0].shape[0]  # Dimension
-    u = 0.83  # Max norm after preprocessing
     hash_seed = 23
 
     # State vectors are already unit length
-    preproc_scale = u #/ np.max(np.linalg.norm(vectors, axis=0))
+    preproc_scale = 1 #/ np.max(np.linalg.norm(vectors, axis=0))
 
     # Create locality sensitive collection of vectors
-    h = quad.lsh.L2DistanceHash.from_random(
+    h = quad.lsh.StateVectorDistanceHash.from_random(
         d=d,
         r=2.5,
-        #m=3,
-        #preproc_scale=preproc_scale,
-        is_complex=True,
+        preproc_scale=preproc_scale,
     )
     collection = quad.AsymmetricLocalCollection(
         vector_store=store,
@@ -77,7 +74,7 @@ LIMIT_TOP = 10
 @pytest.mark.benchmark(
     group='perf-comparison',
 )
-def test_naive_performance(benchmark):
+def test_naive_performance_div1100(benchmark):
     '''Benchmark performance without using an index.'''
     store = BenchmarakGenerate.get_store()
     closest_exhaustive = benchmark(find_closest_pairs_exhaustive,
@@ -93,3 +90,94 @@ def test_index_performance(benchmark):
     closest_approx = benchmark(find_closest_pairs_approximate_index,
                                store, LIMIT_TOP)
     print('Approx index:', closest_approx)
+
+
+def find_possible_nearby_pairs(store, subslice=slice(None, None), vids=None,
+                               query_vid=0,
+                               hash_seed=23, r=2.5, output_collection=None):
+    d = store[0][subslice].shape[0]  # Dimension
+
+    slice_len = len(range(d)[subslice])
+
+    # State vectors are already unit length
+    preproc_scale = 1 / max(np.linalg.norm(v[subslice])
+                                           for vid, v in store.items())
+
+    # Create locality sensitive collection of vectors
+    h = quad.lsh.StateVectorDistanceHash.from_random(
+        d=d,
+        r=r,
+        preproc_scale=preproc_scale,
+    )
+    if output_collection is None:
+        output_collection = quad.AsymmetricLocalCollection(
+            vector_store=store,
+            base_lsh=h,
+            meta_hash_size=10,
+            number_of_maps=10,
+            vector_slice=subslice,
+            prng=np.random.RandomState(hash_seed),
+        )
+    print('store')
+    for vid in (store if vids is None else vids):
+        print(vid, end=', ')
+        output_collection.add(vid)
+
+    norm = np.linalg.norm(store[query_vid][subslice])
+    close_vids = set(output_collection.iter_local_buckets(query_vid,
+                                                          scale=1/norm))
+
+    return close_vids, output_collection
+
+def find_nearby_pairs_flat(store, query_vid):
+    d = store[0].shape[0]  # Dimension
+    hash_seed = 23
+
+    # State vectors are already unit length
+    preproc_scale = 1 #/ np.max(np.linalg.norm(vectors, axis=0))
+
+    # Create locality sensitive collection of vectors
+    h = quad.lsh.StateVectorDistanceHash.from_random(
+        d=d,
+        r=2.5,
+        preproc_scale=preproc_scale,
+    )
+    collection = quad.AsymmetricLocalCollection(
+        vector_store=store,
+        base_lsh=h,
+        meta_hash_size=10,
+        number_of_maps=10,
+        prng=np.random.RandomState(hash_seed),
+    )
+    for vid in store:
+        print(vid)
+        collection.add(vid)
+
+def find_nearby_pairs_hierarchical(store, query_vid):
+    close_vids = None
+    d = store[0].shape[0]  # Dimension
+    for n in [4, 8, 12, 16, 23]:
+        subslice = slice(None, 2**n)
+        close_vids, collection = find_possible_nearby_pairs(
+            store, subslice, close_vids, query_vid,
+            hash_seed=n, r=2.5)
+        print()
+        print(f'n={n}, num: {len(close_vids)}')
+        if n >= d:
+            break
+
+@pytest.mark.benchmark(
+    group='hierarchical-perf',
+)
+def test_index_performance_flat(benchmark):
+    '''Benchmark flat (not hierarchical) index.'''
+    store = BenchmarakGenerate.get_store()
+    benchmark(find_nearby_pairs_flat, store, 19)
+
+@pytest.mark.benchmark(
+    group='hierarchical-perf',
+)
+def test_index_performance_hierarchical(benchmark):
+    '''Benchmark hierarchical index.'''
+    store = BenchmarakGenerate.get_store()
+    benchmark(find_nearby_pairs_hierarchical, store, 19)

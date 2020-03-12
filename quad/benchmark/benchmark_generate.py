@@ -6,7 +6,8 @@ import cirq
 import quad.benchmark
 
 
-BENCHMARK_STORE_PATH = 'benchmark23-store'
+NUM_QUBITS = 23
+BENCHMARK_STORE_PATH = f'benchmark{NUM_QUBITS}-store'
 
 
 def default_circuit_factory(*, num_qubits, depth, noise_p1, noise_p2
@@ -77,7 +78,7 @@ class BenchmarakGenerate:
     num_base = 100
     num_noise_per = 10
 
-    num_qubits = 23
+    num_qubits = NUM_QUBITS
     depth = 20
     noise_p1 = 0.005
     noise_p2 = 0.005
