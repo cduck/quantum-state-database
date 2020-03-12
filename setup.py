@@ -3,7 +3,8 @@ import logging
 logger = logging.getLogger(__name__)
 
 name = 'quantum-state-database'
-version = '0.0.1'
+package_name = 'quad'
+version = '0.1.0'
 
 try:
     with open('README.md', 'r') as f:
@@ -11,8 +12,6 @@ try:
 except:
     logger.warning('Could not open README.md.  long_description will be set to None.')
     long_desc = None
-
-package_name = name.replace('-', '_')
 
 setup(
     name = package_name,
